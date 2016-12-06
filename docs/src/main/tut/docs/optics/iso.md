@@ -27,7 +27,7 @@ import monocle.Iso
 val personToPers = Iso[Person, Pers]((p: Person) => Pers(p.name, p.age))((p: Pers) => Person(p.n, p.a))
 ```
 
-```tut
+```tut:book
 personToPers.get(Person("Zoe", 25))
 personToPers.reverseGet(Pers("Zoe", 25))
 ```
@@ -36,21 +36,17 @@ and thereby create a lossless conversion between these two types. We could simil
 
 Another common use of `Iso` is between collection with same meaning but different performance characteristics, e.g. `List` and `Vector`:
 
-```scala
+```tut:silent
 def listToVector[A] = Iso[List[A], Vector[A]](_.toVector)(_.toList)
 ```
 
-```tut:invisible
-import monocle.example.IsoExample._
-```
-
-```tut
+```tut:book
 listToVector.get(List(1,2,3))
 ```
 
 We can also `reverse` an `Iso` since it defines a symmetric transformation:
 
-```tut
+```tut:book
 def vectorToList[A] = listToVector[A].reverse
 
 vectorToList.get(Vector(1,2,3))
@@ -59,11 +55,11 @@ vectorToList.get(Vector(1,2,3))
 `Iso` are also convenient to lift methods from one type for another, for example a `String` can be seen as a `List[Char]`
 so we should be able to transform all functions `List[Char] => List[Char]` into `String => String`:
 
-```scala
+```tut:silent
 val stringToList = Iso[String, List[Char]](_.toList)(_.mkString("")) 
 ```
 
-```tut
+```tut:book
 stringToList.modify(_.tail)("Hello")
 ```
 

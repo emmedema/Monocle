@@ -177,7 +177,7 @@ scala> val i = Lens[Example, Int](_.i)(i => _.copy(i = i))
 
 We managed to create the first `Lens` but the second call to `apply` failed. This is a known bug in the REPL which is 
 tracked by [SI-7139](https://issues.scala-lang.org/browse/SI-7139). You will also face this error if you use [tut](https://github.com/tpolecat/tut)
-to create documentation. This issue should be fixed in scala 2.12.1
+to create documentation. This issue is fixed in scala 2.12.1
 
 ### Typeclass and instance location
 
