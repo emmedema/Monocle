@@ -1,40 +1,78 @@
 package monocle
 
-import scalaz._
+import cats.Semigroupal
+import cats.arrow.{Arrow, Category, Choice, Compose, Profunctor}
 
 class GetterSpec extends MonocleSuite {
-
   case class Bar(i: Int)
   case class Foo(bar: Bar)
 
-  val _bar = Getter[Foo, Bar](_.bar)
-  val _i   = Getter[Bar, Int](_.i)
-
+  val bar = Getter[Foo, Bar](_.bar)
+  val i   = Getter[Bar, Int](_.i)
 
   // test implicit resolution of type classes
 
-  test("Getter has a Compose)stance") {
-    Compose[Getter].compose(_i, _bar).get(Foo(Bar(3))) shouldEqual 3
+  test("Getter has a Compose instance") {
+    Compose[Getter].compose(i, bar).get(Foo(Bar(3))) shouldEqual 3
   }
 
-  test("Getter has a Category)stance") {
+  test("Getter has a Category instance") {
     Category[Getter].id[Int].get(3) shouldEqual 3
   }
 
-  test("Getter has a Choice)stance") {
-    Choice[Getter].choice(_i, Choice[Getter].id[Int]).get(-\/(Bar(3))) shouldEqual 3
+  test("Getter has a Choice instance") {
+    Choice[Getter]
+      .choice(i, Choice[Getter].id[Int])
+      .get(Left(Bar(3))) shouldEqual 3
   }
 
-  test("Getter has a Split)stance") {
-    Split[Getter].split(_i, _bar).get((Bar(3), Foo(Bar(3)))) shouldEqual ((3, Bar(3)))
-  }
-
-  test("Getter has a Profunctor)stance") {
-    Profunctor[Getter].mapsnd(_bar)(_.i).get(Foo(Bar(3))) shouldEqual 3
+  test("Getter has a Profunctor instance") {
+    Profunctor[Getter].rmap(bar)(_.i).get(Foo(Bar(3))) shouldEqual 3
   }
 
   test("Getter has a Arrow instance") {
-    Arrow[Getter].arr((_: Int) * 2).get(4) shouldEqual 8
+    Arrow[Getter].lift((_: Int) * 2).get(4) shouldEqual 8
   }
 
+  test("Getter has a Semigroupal instance") {
+    val length = Getter[String, Int](_.length)
+    val upper  = Getter[String, String](_.toUpperCase)
+    Semigroupal[Getter[String, *]]
+      .product(length, upper)
+      .get("helloworld") shouldEqual ((10, "HELLOWORLD"))
+  }
+
+  test("get") {
+    i.get(Bar(5)) shouldEqual 5
+  }
+
+  test("find") {
+    i.find(_ > 5)(Bar(9)) shouldEqual Some(9)
+    i.find(_ > 5)(Bar(3)) shouldEqual None
+  }
+
+  test("exist") {
+    i.exist(_ > 5)(Bar(9)) shouldEqual true
+    i.exist(_ > 5)(Bar(3)) shouldEqual false
+  }
+
+  test("zip") {
+    val length = Getter[String, Int](_.length)
+    val upper  = Getter[String, String](_.toUpperCase)
+    length.zip(upper).get("helloworld") shouldEqual ((10, "HELLOWORLD"))
+  }
+
+  test("to") {
+    i.to(_.toString()).get(Bar(5)) shouldEqual "5"
+  }
+
+  test("some") {
+    case class SomeTest(x: Int, y: Option[Int])
+    val obj = SomeTest(1, Some(2))
+
+    val getter = Getter((_: SomeTest).y)
+
+    getter.some.getAll(obj) shouldEqual List(2)
+    obj.applyGetter(getter).some.getAll shouldEqual List(2)
+  }
 }

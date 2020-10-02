@@ -14,3 +14,18 @@ target/
 project/project/
 benchData/
 _site/
+
+## Metals files to ignore
+.metals/
+.bloop/
+project/metals.sbt
+
+## CTags files to ignore
+.ctags
+
+# Docusaurus
+/website/build/
+/website/node_modules/
+/website/static/api/
+/website/variables.js
+/website/yarn.lock

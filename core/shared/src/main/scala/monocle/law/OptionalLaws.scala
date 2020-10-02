@@ -1,14 +1,10 @@
 package monocle.law
 
 import monocle.Optional
-import monocle.internal.IsEq
-
-import scalaz.Id._
-import scalaz.Tags.First
-import scalaz.std.option._
-import scalaz.syntax.std.option._
-import scalaz.syntax.tag._
-import scalaz.{@@, Const}
+import monocle.internal.{IsEq, Monoids}
+import cats.Id
+import cats.data.Const
+import cats.kernel.Monoid
 
 case class OptionalLaws[S, A](optional: Optional[S, A]) {
   import IsEq.syntax
@@ -32,8 +28,10 @@ case class OptionalLaws[S, A](optional: Optional[S, A]) {
     optional.set(a)(s) <==> optional.modify(_ => a)(s)
 
   def consistentModifyModifyId(s: S, f: A => A): IsEq[S] =
-    optional.modify(f)(s) <==> optional.modifyF(a => id.point(f(a)))(s)
+    optional.modify(f)(s) <==> optional.modifyF[Id](f)(s)
 
-  def consistentGetOptionModifyId(s: S): IsEq[Option[A]] =
-    optional.getOption(s) <==> optional.modifyF[Const[Option[A] @@ First, ?]](a => Const(Some(a).first))(s).getConst.unwrap
+  def consistentGetOptionModifyId(s: S): IsEq[Option[A]] = {
+    implicit val optionMonoid: Monoid[Option[A]] = Monoids.firstOption
+    optional.getOption(s) <==> optional.modifyF[Const[Option[A], *]](a => Const(Some(a)))(s).getConst
+  }
 }

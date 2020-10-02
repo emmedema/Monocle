@@ -3,12 +3,11 @@ package monocle.std
 import monocle.Prism
 import monocle.internal.Bounded
 
-import scalaz.std.anyVal._
+import cats.instances.int._
 
 object int extends IntOptics
 
 trait IntOptics {
-
   val intToChar: Prism[Int, Char] =
     Bounded.orderingBoundedSafeCast[Int, Char](_.toChar)(_.toInt)
 
@@ -17,6 +16,4 @@ trait IntOptics {
 
   val intToBoolean: Prism[Int, Boolean] =
     intToByte composePrism byte.byteToBoolean
-
-
 }

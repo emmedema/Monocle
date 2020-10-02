@@ -1,13 +1,12 @@
 package monocle.function
 
+import cats.Order
 import monocle.MonocleSuite
-import monocle.law.discipline.function.{FilterIndexTests, AtTests}
+import monocle.law.discipline.function.FilterIndexTests
 
 class FilterIndexSpec extends MonocleSuite {
+  implicit def mmapFilterIndex[K: Order, V]: FilterIndex[MSorteMap[K, V], K, V] =
+    FilterIndex.fromIso(MSorteMap.toSortedMap)
 
-  implicit def mmapFilterIndex[K, V]: FilterIndex[MMap[K, V], K, V] =
-    FilterIndex.fromIso(MMap.toMap)
-
-  checkAll("fromIso", FilterIndexTests[MMap[Int, String], Int, String])
-
+  checkAll("fromIso", FilterIndexTests[MSorteMap[Int, String], Int, String])
 }

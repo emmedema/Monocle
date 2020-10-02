@@ -1,319 +1,386 @@
-import com.typesafe.sbt.SbtGhPages.GhPagesKeys._
-import com.typesafe.sbt.SbtSite.SiteKeys._
 import com.typesafe.tools.mima.plugin.MimaKeys.mimaPreviousArtifacts
 import com.typesafe.tools.mima.plugin.MimaPlugin.mimaDefaultSettings
-import org.scalajs.sbtplugin.ScalaJSPlugin.autoImport._
-import org.scalajs.sbtplugin.cross.CrossProject
 import sbt.Keys._
-import sbtrelease.ReleasePlugin.autoImport.ReleaseTransformations._
-import sbtunidoc.Plugin.UnidocKeys._
+import sbtcrossproject.CrossPlugin.autoImport.{crossProject, CrossType}
+
+Global / onChangedBuildSource := ReloadOnSourceChanges
+
+inThisBuild(List(
+  organization := "com.github.julien-truffaut",
+  homepage := Some(url("https://github.com/optics-dev/Monocle")),
+  licenses := Seq("MIT" -> url("http://opensource.org/licenses/MIT")),
+  developers := List(
+    Developer(
+      "julien-truffaut",
+      "Julien Truffaut",
+      "truffaut.julien@gmail.com",
+      url("https://github.com/julien-truffaut")
+    ),
+    Developer(
+      "NightRa",
+      "Ilan Godik",
+      "",
+      url("https://github.com/NightRa")
+    ),
+    Developer(
+      "aoiroaoino",
+      "Naoki Aoyama",
+      "aoiro.aoino@gmail.com",
+      url("https://github.com/aoiroaoino")
+    ),
+    Developer(
+      "xuwei-k",
+      "Kenji Yoshida",
+      " 6b656e6a69@gmail.com",
+      url("https://github.com/xuwei-k")
+    ),
+  )
+))
+
+// shamelessly copied from cats
+def scalaVersionSpecificFolders(srcName: String, srcBaseDir: java.io.File, scalaVersion: String) = {
+  def extraDirs(suffix: String) =
+    List(CrossType.Pure, CrossType.Full)
+      .flatMap(_.sharedSrcDir(srcBaseDir, srcName).toList.map(f => file(f.getPath + suffix)))
+
+  CrossVersion.partialVersion(scalaVersion) match {
+    case Some((2, y)) if y <= 12 =>
+      extraDirs("-2.12-")
+    case Some((2, y)) if y >= 13 =>
+      extraDirs("-2.13+")
+    case _ => Nil
+  }
+}
 
 lazy val buildSettings = Seq(
-  organization       := "com.github.julien-truffaut",
-  scalaVersion       := "2.12.0",
-  crossScalaVersions := Seq("2.10.6", "2.11.8", "2.12.0"),
+  scalaVersion       := "2.13.3",
+  crossScalaVersions := Seq("2.13.3"),
+  resolvers += "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots",
   scalacOptions     ++= Seq(
-    "-deprecation",
     "-encoding", "UTF-8",
     "-feature",
     "-language:implicitConversions", "-language:higherKinds", "-language:postfixOps",
     "-unchecked",
     "-Xfatal-warnings",
-    "-Yno-adapted-args",
+    "-deprecation",
     "-Ywarn-dead-code",
     "-Ywarn-value-discard",
-    "-Xfuture"
-  ) ++ (CrossVersion.partialVersion(scalaVersion.value) match {
-    case Some((2, 10)) => Seq("-Yno-generic-signatures") // no generic signatures for scala 2.10.x, see SI-7932, #571 and #828
-    case Some((2, 11)) => Seq( // https://github.com/scala/make-release-notes/blob/9cfbdc8c92f94/experimental-backend.md#emitting-java-8-style-lambdas
-      "-Ybackend:GenBCode",
-      "-Ydelambdafy:method",
-      "-target:jvm-1.8"
-    )
-    case Some((2, 12)) => Seq("-Ydelambdafy:method", "-target:jvm-1.8")
-    case _ => Seq()
-  }),
-  addCompilerPlugin(kindProjector),
-  resolvers ++= Seq(
-    "bintray/non" at "http://dl.bintray.com/non/maven",
-    Resolver.sonatypeRepo("releases"),
-    Resolver.sonatypeRepo("snapshots")
+    "-Ywarn-unused:imports",
   ),
-  scmInfo := Some(ScmInfo(url("https://github.com/julien-truffaut/Monocle"), "scm:git:git@github.com:julien-truffaut/Monocle.git"))
+  scalacOptions ++= PartialFunction.condOpt(CrossVersion.partialVersion(scalaVersion.value)) {
+    case Some((2, n)) if n <= 12 => Seq("-Xfuture", "-Yno-adapted-args") // TODO Move fatal-warnings and deprecation back to on
+    case Some((2, n)) if n >= 13 => Seq("-Ymacro-annotations")
+  }.toList.flatten,
+  scalacOptions in (Compile, console) -= "-Ywarn-unused:imports",
+  scalacOptions in (Test   , console) -= "-Ywarn-unused:imports",
+  addCompilerPlugin(kindProjector),
+  Compile / unmanagedSourceDirectories ++= scalaVersionSpecificFolders("main", baseDirectory.value, scalaVersion.value),
+  Test / unmanagedSourceDirectories ++= scalaVersionSpecificFolders("test", baseDirectory.value, scalaVersion.value),
+  scmInfo := Some(ScmInfo(url("https://github.com/optics-dev/Monocle"), "scm:git:git@github.com:optics-dev/Monocle.git")),
 )
 
-lazy val scalaz     = Def.setting("org.scalaz"      %%% "scalaz-core" % "7.2.7")
-lazy val shapeless  = Def.setting("com.chuusai"     %%% "shapeless"   % "2.3.2")
+lazy val catsVersion = "2.1.1"
 
-lazy val refinedDep = Def.setting("eu.timepit"      %%% "refined"     % "0.6.0")
+lazy val cats              = Def.setting("org.typelevel"     %%% "cats-core"                % catsVersion)
+lazy val catsFree          = Def.setting("org.typelevel"     %%% "cats-free"                % catsVersion)
+lazy val catsLaws          = Def.setting("org.typelevel"     %%% "cats-laws"                % catsVersion)
+lazy val alleycats         = Def.setting("org.typelevel"     %%% "alleycats-core"           % catsVersion)
+lazy val scalaz            = Def.setting("org.scalaz"        %%% "scalaz-core"              % "7.3.2")
+lazy val shapeless         = Def.setting("com.chuusai"       %%% "shapeless"                % "2.3.3")
+lazy val refinedDep        = Def.setting("eu.timepit"        %%% "refined"                  % "0.9.17")
+lazy val refinedScalacheck = Def.setting("eu.timepit"        %%% "refined-scalacheck"       % "0.9.17" % "test")
 
-lazy val discipline = Def.setting("org.typelevel"   %%% "discipline"  % "0.7.2")
-lazy val scalacheck = Def.setting("org.scalacheck"  %%% "scalacheck"  % "1.13.4")
-lazy val scalatest  = Def.setting("org.scalatest"   %%% "scalatest"   % "3.0.0"  % "test")
+lazy val discipline           = Def.setting("org.typelevel"  %%% "discipline-core"          % "1.0.3")
+lazy val discipline_scalatest = Def.setting("org.typelevel"  %%% "discipline-scalatest"     % "2.0.1")
 
-lazy val macroCompat = Def.setting("org.typelevel" %%% "macro-compat" % "1.1.1")
+lazy val macroVersion = "2.1.1"
 
-lazy val macroVersion = "2.1.0"
-lazy val paradisePlugin = "org.scalamacros" %  "paradise"      % macroVersion cross CrossVersion.full
-lazy val kindProjector  = "org.spire-math"  % "kind-projector" % "0.9.3" cross CrossVersion.binary
+lazy val paradisePlugin = Def.setting{
+  CrossVersion.partialVersion(scalaVersion.value) match {
+    case Some((2, v)) if v <= 12 =>
+      Seq(compilerPlugin("org.scalamacros" % "paradise" % macroVersion cross CrossVersion.patch))
+    case _ =>
+      // if scala 2.13.0-M4 or later, macro annotations merged into scala-reflect
+      // https://github.com/scala/scala/pull/6606
+      Nil
+  }
+}
+
+lazy val kindProjector  = "org.typelevel" % "kind-projector" % "0.11.0" cross CrossVersion.full
 
 def mimaSettings(module: String): Seq[Setting[_]] = mimaDefaultSettings ++ Seq(
-  mimaPreviousArtifacts := Set("com.github.julien-truffaut" %  (s"monocle-${module}_2.11") % "1.3.0")
+  mimaPreviousArtifacts := Set("com.github.julien-truffaut" %%  (s"monocle-${module}") % "2.0.0")
 )
 
-lazy val tagName = Def.setting(
- s"v${if (releaseUseGlobalVersion.value) (version in ThisBuild).value else version.value}")
-
-lazy val gitRev =
-  sys.process.Process("git rev-parse HEAD").lines_!.head
+lazy val gitRev = sys.process.Process("git rev-parse HEAD").lineStream_!.head
 
 lazy val scalajsSettings = Seq(
   scalacOptions += {
-    val s = if (isSnapshot.value) gitRev else tagName.value
+    lazy val tag = (version in ThisBuild).value
+    val s = if (isSnapshot.value) gitRev else tag
     val a = (baseDirectory in LocalRootProject).value.toURI.toString
-    val g = "https://raw.githubusercontent.com/julien-truffaut/Monocle"
+    val g = "https://raw.githubusercontent.com/optics-dev/Monocle"
     s"-P:scalajs:mapSourceURI:$a->$g/$s/"
   },
-  requiresDOM := false,
-  testOptions in Test += Tests.Argument(TestFrameworks.ScalaCheck,
-                           "-maxSize", "8",
-                           "-minSuccessfulTests", "50")
+  testOptions in Test += Tests.Argument(TestFrameworks.ScalaCheck, "-maxSize", "8", "-minSuccessfulTests", "50")
 )
 
-lazy val monocleSettings    = buildSettings ++ publishSettings
+lazy val monocleSettings    = buildSettings
 lazy val monocleJvmSettings = monocleSettings
 lazy val monocleJsSettings  = monocleSettings ++ scalajsSettings
 
-lazy val monocleCrossSettings = (_: CrossProject)
-  .jvmSettings(monocleJvmSettings: _*)
-  .jsSettings(monocleJsSettings: _*)
-
 lazy val monocle = project.in(file("."))
   .settings(moduleName := "monocle")
+  .settings(noPublishSettings)
   .settings(monocleSettings)
   .aggregate(monocleJVM, monocleJS)
   .dependsOn(monocleJVM, monocleJS)
 
 lazy val monocleJVM = project.in(file(".monocleJVM"))
   .settings(monocleJvmSettings)
+  .settings(noPublishSettings)
   .aggregate(
-    coreJVM, genericJVM, lawJVM, macrosJVM, stateJVM, refinedJVM, unsafeJVM, testJVM,
-    example, docs, bench)
+    core.jvm, generic.jvm, law.jvm, macros.jvm, state.jvm, refined.jvm, unsafe.jvm, test.jvm,
+    example, bench)
   .dependsOn(
-    coreJVM, genericJVM, lawJVM, macrosJVM, stateJVM, refinedJVM, unsafeJVM, testJVM % "test-internal -> test",
+    core.jvm, generic.jvm, law.jvm, macros.jvm, state.jvm, refined.jvm, unsafe.jvm, test.jvm % "test-internal -> test",
     bench % "compile-internal;test-internal -> test")
 
 lazy val monocleJS = project.in(file(".monocleJS"))
   .settings(monocleJsSettings)
-  .aggregate(coreJS, genericJS, lawJS, macrosJS, stateJS, refinedJS, unsafeJS, testJS)
-  .dependsOn(coreJS, genericJS, lawJS, macrosJS, stateJS, refinedJS, unsafeJS, testJS  % "test-internal -> test")
+  .settings(noPublishSettings)
+  .aggregate(core.js, generic.js, law.js, macros.js, state.js, refined.js, unsafe.js, test.js)
+  .dependsOn(core.js, generic.js, law.js, macros.js, state.js, refined.js, unsafe.js, test.js  % "test-internal -> test")
 
-lazy val coreJVM = core.jvm
-lazy val coreJS  = core.js
-lazy val core    = crossProject
-  .settings(moduleName := "monocle-core")
-  .configureCross(monocleCrossSettings)
+lazy val core = crossProject(JVMPlatform, JSPlatform)
+  .configureCross(
+    _.jvmSettings(monocleJvmSettings),
+    _.jsSettings(monocleJsSettings),
+  )
   .jvmSettings(mimaSettings("core"): _*)
-  .settings(libraryDependencies += scalaz.value)
-  .jvmSettings(
-    libraryDependencies ++= PartialFunction.condOpt(CrossVersion.partialVersion(scalaVersion.value)) {
-      case Some((2, 11)) => "org.scala-lang.modules" %% "scala-java8-compat" % "0.7.0"
-    }.toList
+  .settings(libraryDependencies ++= Seq(cats.value, catsFree.value))
+  .settings(
+    moduleName := "monocle-core",
+    scalacOptions ~= (_.filterNot(
+      Set(
+        "-Xfatal-warnings" // Workaround for sbt bug
+      )
+    ))
   )
 
-lazy val genericJVM = generic.jvm
-lazy val genericJS  = generic.js
-lazy val generic    = crossProject.dependsOn(core)
+lazy val generic = crossProject(JVMPlatform, JSPlatform)
+  .crossType(CrossType.Pure)
+  .dependsOn(core)
   .settings(moduleName := "monocle-generic")
-  .configureCross(monocleCrossSettings)
+  .configureCross(
+    _.jvmSettings(monocleJvmSettings),
+    _.jsSettings(monocleJsSettings)
+  )
   .jvmSettings(mimaSettings("generic"): _*)
-  .settings(libraryDependencies ++= Seq(scalaz.value, shapeless.value))
+  .settings(libraryDependencies ++= Seq(cats.value, shapeless.value))
 
-lazy val refinedJVM = refined.jvm
-lazy val refinedJS  = refined.js
-lazy val refined    = crossProject.dependsOn(core)
+lazy val refined = crossProject(JVMPlatform, JSPlatform)
+  .crossType(CrossType.Pure)
+  .dependsOn(core)
   .settings(moduleName := "monocle-refined")
-  .configureCross(monocleCrossSettings)
-  .settings(libraryDependencies ++= Seq(scalaz.value, refinedDep.value))
+  .configureCross(
+    _.jvmSettings(monocleJvmSettings),
+    _.jsSettings(monocleJsSettings)
+  )
+  .settings(libraryDependencies ++= Seq(cats.value, refinedDep.value))
 
-lazy val lawJVM = law.jvm
-lazy val lawJS  = law.js
-lazy val law    = crossProject.dependsOn(core)
+lazy val law = crossProject(JVMPlatform, JSPlatform)
+  .crossType(CrossType.Pure)
+  .dependsOn(core)
   .settings(moduleName := "monocle-law")
-  .configureCross(monocleCrossSettings)
-  .settings(libraryDependencies ++= Seq(discipline.value, scalacheck.value))
+  .configureCross(
+    _.jvmSettings(monocleJvmSettings),
+    _.jsSettings(monocleJsSettings)
+  )
+  .settings(libraryDependencies ++= Seq(discipline.value))
 
-lazy val macrosJVM = macros.jvm
-lazy val macrosJS  = macros.js
-lazy val macros    = crossProject.dependsOn(core)
+lazy val macros = crossProject(JVMPlatform, JSPlatform)
+  .crossType(CrossType.Pure)
+  .dependsOn(core)
   .in(file("macro"))
   .settings(moduleName := "monocle-macro")
-  .configureCross(monocleCrossSettings)
+  .configureCross(
+    _.jvmSettings(monocleJvmSettings),
+    _.jsSettings(monocleJsSettings)
+  )
   .settings(
     scalacOptions += "-language:experimental.macros",
     libraryDependencies ++= Seq(
-      "org.scala-lang" % "scala-reflect"  % scalaVersion.value,
-      "org.scala-lang" % "scala-compiler" % scalaVersion.value % "provided",
-      macroCompat.value
+      scalaOrganization.value % "scala-reflect"  % scalaVersion.value,
+      scalaOrganization.value % "scala-compiler" % scalaVersion.value % "provided",
     ),
-    addCompilerPlugin(paradisePlugin),
-    libraryDependencies ++= CrossVersion partialVersion scalaVersion.value collect {
-        case (2, scalaMajor) if scalaMajor < 11 => Seq("org.scalamacros" %% "quasiquotes" % macroVersion)
-      } getOrElse Nil,
+    libraryDependencies ++= paradisePlugin.value,
     unmanagedSourceDirectories in Compile += (sourceDirectory in Compile).value / s"scala-${scalaBinaryVersion.value}"
   )
 
-lazy val stateJVM = state.jvm
-lazy val stateJS  = state.js
-lazy val state    = crossProject.dependsOn(core)
+lazy val state = crossProject(JVMPlatform, JSPlatform)
+  .crossType(CrossType.Pure)
+  .dependsOn(core)
   .settings(moduleName := "monocle-state")
-  .configureCross(monocleCrossSettings)
-  .settings(libraryDependencies ++= Seq(scalaz.value))
+  .configureCross(
+    _.jvmSettings(monocleJvmSettings),
+    _.jsSettings(monocleJsSettings),
+  )
+  .settings(libraryDependencies ++= Seq(cats.value))
 
-lazy val unsafeJVM = unsafe.jvm
-lazy val unsafeJS  = unsafe.js
-lazy val unsafe    = crossProject.dependsOn(core)
+lazy val unsafe = crossProject(JVMPlatform, JSPlatform)
+  .crossType(CrossType.Pure)
+  .dependsOn(core)
   .settings(moduleName := "monocle-unsafe")
-  .configureCross(monocleCrossSettings)
+  .configureCross(
+    _.jvmSettings(monocleJvmSettings),
+    _.jsSettings(monocleJsSettings)
+  )
   .jvmSettings(mimaSettings("unsafe"): _*)
-  .settings(libraryDependencies ++= Seq(scalaz.value, shapeless.value))
+  .settings(libraryDependencies ++= Seq(cats.value, alleycats.value, shapeless.value))
 
-lazy val testJVM = test.jvm
-lazy val testJS  = test.js
-lazy val test    = crossProject.dependsOn(core, generic, macros, law, state, refined, unsafe)
+lazy val test = crossProject(JVMPlatform, JSPlatform).dependsOn(core, generic, macros, law, state, refined, unsafe)
   .settings(moduleName := "monocle-test")
-  .configureCross(monocleCrossSettings)
+  .configureCross(
+    _.jvmSettings(monocleJvmSettings),
+    _.jsSettings(monocleJsSettings)
+  )
   .settings(noPublishSettings: _*)
   .settings(
-    libraryDependencies ++= Seq(scalaz.value, shapeless.value, scalatest.value, compilerPlugin(paradisePlugin))
+    libraryDependencies ++= Seq(cats.value, catsLaws.value, shapeless.value, discipline_scalatest.value, refinedScalacheck.value),
+    libraryDependencies ++= paradisePlugin.value
   )
 
-lazy val bench = project.dependsOn(coreJVM, genericJVM, macrosJVM)
+lazy val bench = project.dependsOn(core.jvm, generic.jvm, macros.jvm)
   .settings(moduleName := "monocle-bench")
   .settings(monocleJvmSettings)
   .settings(noPublishSettings)
   .settings(libraryDependencies ++= Seq(
-    shapeless.value,
-    compilerPlugin(paradisePlugin)
-  )).enablePlugins(JmhPlugin)
+    scalaz.value,
+    shapeless.value),
+    libraryDependencies ++= paradisePlugin.value
+  ).enablePlugins(JmhPlugin)
 
-lazy val example = project.dependsOn(coreJVM, genericJVM, refinedJVM, macrosJVM, stateJVM, testJVM % "test->test")
+lazy val example = project.dependsOn(core.jvm, generic.jvm, refined.jvm, macros.jvm, state.jvm, test.jvm % "test->test")
   .settings(moduleName := "monocle-example")
   .settings(monocleJvmSettings)
   .settings(noPublishSettings)
   .settings(
-    libraryDependencies ++= Seq(scalaz.value, shapeless.value, scalatest.value, compilerPlugin(paradisePlugin))
+    libraryDependencies ++= Seq(cats.value, shapeless.value, discipline_scalatest.value),
+    libraryDependencies ++= paradisePlugin.value
   )
 
-lazy val docs = project.dependsOn(coreJVM, unsafeJVM, macrosJVM, example)
-  .enablePlugins(MicrositesPlugin)
+lazy val docs = project.dependsOn(core.jvm, unsafe.jvm, macros.jvm, example)
+  .enablePlugins(BuildInfoPlugin, DocusaurusPlugin, MdocPlugin, ScalaUnidocPlugin)
   .settings(moduleName := "monocle-docs")
   .settings(monocleSettings)
   .settings(noPublishSettings)
-  .settings(unidocSettings)
-  .settings(ghpages.settings)
-  .settings(docSettings)
-  .settings(tutScalacOptions ~= (_.filterNot(Set("-Ywarn-unused-import", "-Ywarn-dead-code"))))
+  .settings(mdocSettings)
+  .settings(buildInfoSettings)
+  .settings(scalacOptions ~= (_.filterNot(Set("-Ywarn-unused:imports", "-Ywarn-dead-code"))))
   .settings(
-    libraryDependencies ++= Seq(scalaz.value, shapeless.value, compilerPlugin(paradisePlugin))
+    libraryDependencies ++= Seq(cats.value, shapeless.value),
+    libraryDependencies ++= paradisePlugin.value
   )
 
-lazy val docsMappingsAPIDir = settingKey[String]("Name of subdirectory in site target directory for api docs")
+lazy val buildInfoSettings = Seq(
+  buildInfoPackage := "monocle.build",
+  buildInfoObject := "info",
+  buildInfoKeys := Seq[BuildInfoKey](
+    scalaVersion,
+    scalacOptions,
+    sourceDirectory,
+    latestVersion in ThisBuild,
+    BuildInfoKey.map(version in ThisBuild) {
+      case (_, v) => "latestSnapshotVersion" -> v
+    },
+    BuildInfoKey.map(moduleName in core.jvm) {
+      case (k, v) => "core" ++ k.capitalize -> v
+    },
+    BuildInfoKey.map(crossScalaVersions in core.jvm) {
+      case (k, v) => "core" ++ k.capitalize -> v
+    },
+    organization in LocalRootProject,
+    crossScalaVersions in core.jvm,
+  )
+)
 
-lazy val docSettings = Seq(
-  micrositeName := "Monocle",
-  micrositeDescription := "Optics library for Scala",
-  micrositeHighlightTheme := "atom-one-light",
-  micrositeHomepage := "http://julien-truffaut.github.io/Monocle",
-  micrositeBaseUrl := "/Monocle",
-  micrositeDocumentationUrl := "/Monocle/docs",
-  micrositeGithubOwner := "julien-truffaut",
-  micrositeGithubRepo := "Monocle",
-  micrositePalette := Map(
-    "brand-primary"   -> "#5B5988",
-    "brand-secondary" -> "#292E53",
-    "brand-tertiary"  -> "#222749",
-    "gray-dark"       -> "#49494B",
-    "gray"            -> "#7B7B7E",
-    "gray-light"      -> "#E5E5E6",
-    "gray-lighter"    -> "#F4F3F4",
-    "white-color"     -> "#FFFFFF"),
-  autoAPIMappings := true,
-  unidocProjectFilter in (ScalaUnidoc, unidoc) := inProjects(coreJVM),
-  docsMappingsAPIDir := "api",
-  addMappingsToSiteDir(mappings in (ScalaUnidoc, packageDoc), docsMappingsAPIDir),
-  ghpagesNoJekyll := false,
-  fork in tut := true,
-  fork in (ScalaUnidoc, unidoc) := true,
+lazy val mdocSettings = Seq(
+  mdoc := run.in(Compile).evaluated,
+  scalacOptions --= Seq("-Xfatal-warnings", "-Ywarn-unused"),
+  crossScalaVersions := Seq(scalaVersion.value),
+  unidocProjectFilter in (ScalaUnidoc, unidoc) := inProjects(core.jvm),
+  target in (ScalaUnidoc, unidoc) := (baseDirectory in LocalRootProject).value / "website" / "static" / "api",
+  cleanFiles += (target in (ScalaUnidoc, unidoc)).value,
+  docusaurusCreateSite := docusaurusCreateSite
+    .dependsOn(unidoc in Compile)
+    .dependsOn(updateSiteVariables in ThisBuild)
+    .value,
+  docusaurusPublishGhpages :=
+    docusaurusPublishGhpages
+      .dependsOn(unidoc in Compile)
+      .dependsOn(updateSiteVariables in ThisBuild)
+      .value,
   scalacOptions in (ScalaUnidoc, unidoc) ++= Seq(
-    "-Xfatal-warnings",
-    "-doc-source-url", scmInfo.value.get.browseUrl + "/tree/master€{FILE_PATH}.scala",
+    "-doc-source-url", s"https://github.com/optics-dev/Monocle/tree/v${(latestVersion in ThisBuild).value}€{FILE_PATH}.scala",
     "-sourcepath", baseDirectory.in(LocalRootProject).value.getAbsolutePath,
-    "-diagrams"
-  ),
-  git.remoteRepo := "git@github.com:julien-truffaut/Monocle.git",
-  includeFilter in makeSite := "*.html" | "*.css" | "*.png" | "*.jpg" | "*.gif" | "*.js" | "*.swf" | "*.yml" | "*.md"
-)
-
-
-lazy val publishSettings = Seq(
-  homepage := Some(url("https://github.com/julien-truffaut/Monocle")),
-  licenses := Seq("MIT" -> url("http://opensource.org/licenses/MIT")),
-  autoAPIMappings := true,
-  apiURL := Some(url("https://julien-truffaut.github.io/Monocle/api/")),
-  publishMavenStyle := true,
-  publishArtifact in Test := false,
-  pomIncludeRepository := { _ => false },
-  publishTo := version { (v: String) =>
-    val nexus = "https://oss.sonatype.org/"
-    if (v.trim.endsWith("SNAPSHOT"))
-      Some("snapshots" at nexus + "content/repositories/snapshots")
-    else
-      Some("releases"  at nexus + "service/local/staging/deploy/maven2")
-  }.value,
-  pomExtra := (
-    <developers>
-      <developer>
-        <id>julien-truffaut</id>
-        <name>Julien Truffaut</name>
-      </developer>
-      <developer>
-        <id>NightRa</id>
-        <name>Ilan Godik</name>
-      </developer>
-      <developer>
-        <id>aoiroaoino</id>
-        <name>Naoki Aoyama</name>
-      </developer>
-      <developer>
-        <id>xuwei-k</id>
-        <name>Kenji Yoshida</name>
-      </developer>
-    </developers>
-    ),
-  releaseCrossBuild := true,
-  releasePublishArtifactsAction := PgpKeys.publishSigned.value,
-  releaseProcess := Seq[ReleaseStep](
-    checkSnapshotDependencies,
-    inquireVersions,
-    runTest,
-    setReleaseVersion,
-    commitReleaseVersion,
-    tagRelease,
-    publishArtifacts,
-    setNextVersion,
-    commitNextVersion,
-    pushChanges
+    "-doc-title", "Monocle",
+    "-doc-version", s"v${(latestVersion in ThisBuild).value}"
   )
 )
+
+def minorVersion(version: String): String = {
+  val (major, minor) =
+    CrossVersion.partialVersion(version).get
+  s"$major.$minor"
+}
+
+val latestVersion = settingKey[String]("Latest stable released version")
+latestVersion in ThisBuild := {
+  val snapshot = (isSnapshot in ThisBuild).value
+  val stable = (isVersionStable in ThisBuild).value
+
+  if (!snapshot && stable) {
+    (version in ThisBuild).value
+  } else {
+    (previousStableVersion in ThisBuild).value.get
+  }
+}
+
+val updateSiteVariables = taskKey[Unit]("Update site variables")
+updateSiteVariables in ThisBuild := {
+  val file = (baseDirectory in LocalRootProject).value / "website" / "variables.js"
+
+  val variables =
+    Map[String, String](
+      "organization" -> (organization in LocalRootProject).value,
+      "coreModuleName" -> (moduleName in core.jvm).value,
+      "latestVersion" -> (latestVersion in ThisBuild).value,
+      "scalaPublishVersions" -> {
+        val minorVersions = (crossScalaVersions in core.jvm).value.map(minorVersion)
+        if (minorVersions.size <= 2) minorVersions.mkString(" and ")
+        else minorVersions.init.mkString(", ") ++ " and " ++ minorVersions.last
+      }
+    )
+
+  val fileHeader =
+    "// Generated by sbt. Do not edit directly."
+
+  val fileContents =
+    variables.toList
+      .sortBy { case (key, _) => key }
+      .map { case (key, value) => s"  $key: '$value'" }
+      .mkString(s"$fileHeader\nmodule.exports = {\n", ",\n", "\n};\n")
+
+  IO.write(file, fileContents)
+}
 
 lazy val noPublishSettings = Seq(
-  publish := (),
-  publishLocal := (),
-  publishArtifact := false
+  publish := {},
+  publishLocal := {},
+  publishArtifact := false,
+  skip in publish := true
 )
-
-addCommandAlias("validate", ";compile;test;unidoc;tut")
 
 // For Travis CI - see http://www.cakesolutions.net/teamblogs/publishing-artefacts-to-oss-sonatype-nexus-using-sbt-and-travis-ci
 credentials ++= (for {

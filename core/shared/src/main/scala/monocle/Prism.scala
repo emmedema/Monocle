@@ -1,40 +1,41 @@
 package monocle
 
-import scalaz.Leibniz.===
-import scalaz.Liskov.<~<
-import scalaz.{Applicative, Category, Equal, Monoid, Traverse, \/}
-import scalaz.std.option._
+import cats.{Applicative, Eq, Monoid, Traverse}
+import cats.arrow.Category
+import cats.evidence.{<~<, Is}
+import cats.instances.option._
+import cats.syntax.either._
 
 /**
- * A [[PPrism]] can be seen as a pair of functions:
- *  - `getOrModify: S => T \/ A`
- *  - `reverseGet : B => T`
- *
- * A [[PPrism]] could also be defined as a weaker [[PIso]] where get can fail.
- *
- * Typically a [[PPrism]] or [[Prism]] encodes the relation between a Sum or
- * CoProduct type (e.g. sealed trait) and one of it is element.
- *
- * [[PPrism]] stands for Polymorphic Prism as it set and modify methods change
- * a type `A` to `B` and `S` to `T`.
- * [[Prism]] is a type alias for [[PPrism]] where the type of target cannot be modified:
- * {{{
- * type Prism[S, A] = PPrism[S, S, A, A]
- * }}}
- *
- * A [[PPrism]] is also a valid  [[Fold]], [[POptional]], [[PTraversal]] and [[PSetter]]
- *
- * @see [[monocle.law.PrismLaws]]
- *
- * @tparam S the source of a [[PPrism]]
- * @tparam T the modified source of a [[PPrism]]
- * @tparam A the target of a [[PPrism]]
- * @tparam B the modified target of a [[PPrism]]
- */
+  * A [[PPrism]] can be seen as a pair of functions:
+  *  - `getOrModify: S => Either[T, A]`
+  *  - `reverseGet : B => T`
+  *
+  * A [[PPrism]] could also be defined as a weaker [[PIso]] where get can fail.
+  *
+  * Typically a [[PPrism]] or [[Prism]] encodes the relation between a Sum or
+  * CoProduct type (e.g. sealed trait) and one of its element.
+  *
+  * [[PPrism]] stands for Polymorphic Prism as it set and modify methods change
+  * a type `A` to `B` and `S` to `T`.
+  * [[Prism]] is a type alias for [[PPrism]] where the type of target cannot be modified:
+  * {{{
+  * type Prism[S, A] = PPrism[S, S, A, A]
+  * }}}
+  *
+  * A [[PPrism]] is also a valid  [[Fold]], [[POptional]], [[PTraversal]] and [[PSetter]]
+  *
+  * @see [[monocle.law.PrismLaws]]
+  *
+  * @tparam S the source of a [[PPrism]]
+  * @tparam T the modified source of a [[PPrism]]
+  * @tparam A the target of a [[PPrism]]
+  * @tparam B the modified target of a [[PPrism]]
+  */
 abstract class PPrism[S, T, A, B] extends Serializable { self =>
 
   /** get the target of a [[PPrism]] or return the original value while allowing the type to change if it does not match */
-  def getOrModify(s: S): T \/ A
+  def getOrModify(s: S): Either[T, A]
 
   /** get the modified source of a [[PPrism]] */
   def reverseGet(b: B): T
@@ -43,20 +44,20 @@ abstract class PPrism[S, T, A, B] extends Serializable { self =>
   def getOption(s: S): Option[A]
 
   /** modify polymorphically the target of a [[PPrism]] with an Applicative function */
-  @inline final def modifyF[F[_] : Applicative](f: A => F[B])(s: S): F[T] =
+  @inline final def modifyF[F[_]: Applicative](f: A => F[B])(s: S): F[T] =
     getOrModify(s).fold(
-      t => Applicative[F].point(t),
+      t => Applicative[F].pure(t),
       a => Applicative[F].map(f(a))(reverseGet)
     )
 
   /** modify polymorphically the target of a [[PPrism]] with a function */
   @inline final def modify(f: A => B): S => T =
-    getOrModify(_).fold(identity,a => reverseGet(f(a)))
+    getOrModify(_).fold(identity, a => reverseGet(f(a)))
 
   /**
-   * modify polymorphically the target of a [[PPrism]] with a function.
-   * return empty if the [[PPrism]] is not matching
-   */
+    * modify polymorphically the target of a [[PPrism]] with a function.
+    * return empty if the [[PPrism]] is not matching
+    */
   @inline final def modifyOption(f: A => B): S => Option[T] =
     s => getOption(s).map(a => reverseGet(f(a)))
 
@@ -65,51 +66,77 @@ abstract class PPrism[S, T, A, B] extends Serializable { self =>
     modify(_ => b)
 
   /**
-   * set polymorphically the target of a [[PPrism]] with a value.
-   * return empty if the [[PPrism]] is not matching
-   */
+    * set polymorphically the target of a [[PPrism]] with a value.
+    * return empty if the [[PPrism]] is not matching
+    */
   @inline final def setOption(b: B): S => Option[T] =
     modifyOption(_ => b)
 
-  /** check if a [[PPrism]] has a target */
-  @inline final def isMatching(s: S): Boolean =
+  /** check if there is no target */
+  @inline final def isEmpty(s: S): Boolean =
+    getOption(s).isEmpty
+
+  /** check if there is a target */
+  @inline final def nonEmpty(s: S): Boolean =
     getOption(s).isDefined
+
+  /** find if the target satisfies the predicate */
+  @inline final def find(p: A => Boolean): S => Option[A] =
+    getOption(_).flatMap(a => Some(a).filter(p))
+
+  /** check if there is a target and it satisfies the predicate */
+  @inline final def exist(p: A => Boolean): S => Boolean =
+    getOption(_).fold(false)(p)
+
+  /** check if there is no target or the target satisfies the predicate */
+  @inline final def all(p: A => Boolean): S => Boolean =
+    getOption(_).fold(true)(p)
 
   /** create a [[Getter]] from the modified target to the modified source of a [[PPrism]] */
   @inline final def re: Getter[B, T] =
     Getter(reverseGet)
 
   @inline final def first[C]: PPrism[(S, C), (T, C), (A, C), (B, C)] =
-    PPrism[(S, C), (T, C), (A, C), (B, C)]{
-      case (s, c) => getOrModify(s).bimap(_ -> c, _ -> c)
-    }{
-      case (b, c) => (reverseGet(b), c)
+    PPrism[(S, C), (T, C), (A, C), (B, C)] { case (s, c) =>
+      getOrModify(s).bimap(_ -> c, _ -> c)
+    } { case (b, c) =>
+      (reverseGet(b), c)
     }
 
   @inline final def second[C]: PPrism[(C, S), (C, T), (C, A), (C, B)] =
-    PPrism[(C, S), (C, T), (C, A), (C, B)]{
-      case (c, s) => getOrModify(s).bimap(c -> _, c -> _)
-    }{
-      case (c, b) => (c, reverseGet(b))
+    PPrism[(C, S), (C, T), (C, A), (C, B)] { case (c, s) =>
+      getOrModify(s).bimap(c -> _, c -> _)
+    } { case (c, b) =>
+      (c, reverseGet(b))
     }
 
-  @inline final def left[C] : PPrism[S \/ C, T \/ C, A \/ C, B \/ C] =
-    PPrism[S \/ C, T \/ C, A \/ C, B \/ C](
-    _.fold(getOrModify(_).bimap(\/.left, \/.left), c => \/.right(\/.right(c)))
+  @inline final def left[C]: PPrism[Either[S, C], Either[T, C], Either[A, C], Either[B, C]] =
+    PPrism[Either[S, C], Either[T, C], Either[A, C], Either[B, C]](
+      _.fold(getOrModify(_).bimap(Either.left, Either.left), c => Either.right(Either.right(c)))
     )(_.leftMap(reverseGet))
 
-  @inline final def right[C]: PPrism[C \/ S, C \/ T, C \/ A, C \/ B] =
-    PPrism[C \/ S, C \/ T, C \/ A, C \/ B](
-    _.fold(c => \/.right(\/.left(c)), getOrModify(_).bimap(\/.right, \/.right))
+  @inline final def right[C]: PPrism[Either[C, S], Either[C, T], Either[C, A], Either[C, B]] =
+    PPrism[Either[C, S], Either[C, T], Either[C, A], Either[C, B]](
+      _.fold(c => Either.right(Either.left(c)), getOrModify(_).bimap(Either.right, Either.right))
     )(_.map(reverseGet))
 
-  /************************************************************/
-  /** Compose methods between a [[PPrism]] and another Optics */
-  /************************************************************/
+  def some[A1, B1](implicit ev1: A =:= Option[A1], ev2: B =:= Option[B1]): PPrism[S, T, A1, B1] =
+    adapt[Option[A1], Option[B1]] composePrism (std.option.pSome)
 
+  private def adapt[A1, B1](implicit evA: A =:= A1, evB: B =:= B1): PPrism[S, T, A1, B1] =
+    evB.substituteCo[PPrism[S, T, A1, *]](evA.substituteCo[PPrism[S, T, *, B]](this))
+
+  /** *********************************************************
+    */
+  /** Compose methods between a [[PPrism]] and another Optics */
+  /** *********************************************************
+    */
   /** compose a [[PPrism]] with a [[Fold]] */
   @inline final def composeFold[C](other: Fold[A, C]): Fold[S, C] =
     asFold composeFold other
+
+  /** Compose with a function lifted into a Getter */
+  @inline def to[C](f: A => C): Fold[S, C] = composeGetter(Getter(f))
 
   /** compose a [[PPrism]] with a [[Getter]] */
   @inline final def composeGetter[C](other: Getter[A, C]): Fold[S, C] =
@@ -133,9 +160,11 @@ abstract class PPrism[S, T, A, B] extends Serializable { self =>
 
   /** compose a [[PPrism]] with a [[PPrism]] */
   @inline final def composePrism[C, D](other: PPrism[A, B, C, D]): PPrism[S, T, C, D] =
-    new PPrism[S, T, C, D]{
-      def getOrModify(s: S): T \/ C =
-        self.getOrModify(s).flatMap(a => other.getOrModify(a).bimap(self.set(_)(s), identity))
+    new PPrism[S, T, C, D] {
+      def getOrModify(s: S): Either[T, C] =
+        self
+          .getOrModify(s)
+          .flatMap(a => other.getOrModify(a).bimap(self.set(_)(s), identity))
 
       def reverseGet(d: D): T =
         self.reverseGet(other.reverseGet(d))
@@ -148,10 +177,11 @@ abstract class PPrism[S, T, A, B] extends Serializable { self =>
   @inline final def composeIso[C, D](other: PIso[A, B, C, D]): PPrism[S, T, C, D] =
     composePrism(other.asPrism)
 
-  /********************************************/
+  /** *****************************************
+    */
   /** Experimental aliases of compose methods */
-  /********************************************/
-
+  /** *****************************************
+    */
   /** alias to composeTraversal */
   @inline final def ^|->>[C, D](other: PTraversal[A, B, C, D]): PTraversal[S, T, C, D] =
     composeTraversal(other)
@@ -172,19 +202,21 @@ abstract class PPrism[S, T, A, B] extends Serializable { self =>
   @inline final def ^<->[C, D](other: PIso[A, B, C, D]): PPrism[S, T, C, D] =
     composeIso(other)
 
-  /******************************************************************/
+  /** ***************************************************************
+    */
   /** Transformation methods to view a [[PPrism]] as another Optics */
-  /******************************************************************/
-
+  /** ***************************************************************
+    */
   /** view a [[PPrism]] as a [[Fold]] */
-  @inline final def asFold: Fold[S, A] = new Fold[S, A]{
-    def foldMap[M: Monoid](f: A => M)(s: S): M =
-      getOption(s) map f getOrElse Monoid[M].zero
-  }
+  @inline final def asFold: Fold[S, A] =
+    new Fold[S, A] {
+      def foldMap[M: Monoid](f: A => M)(s: S): M =
+        getOption(s) map f getOrElse Monoid[M].empty
+    }
 
   /** view a [[PPrism]] as a [[Setter]] */
   @inline final def asSetter: PSetter[S, T, A, B] =
-    new PSetter[S, T, A, B]{
+    new PSetter[S, T, A, B] {
       def modify(f: A => B): S => T =
         self.modify(f)
 
@@ -201,8 +233,8 @@ abstract class PPrism[S, T, A, B] extends Serializable { self =>
 
   /** view a [[PPrism]] as a [[POptional]] */
   @inline final def asOptional: POptional[S, T, A, B] =
-    new POptional[S, T, A, B]{
-      def getOrModify(s: S): T \/ A =
+    new POptional[S, T, A, B] {
+      def getOrModify(s: S): Either[T, A] =
         self.getOrModify(s)
 
       def set(b: B): S => T =
@@ -218,12 +250,13 @@ abstract class PPrism[S, T, A, B] extends Serializable { self =>
         self.modifyF(f)(s)
     }
 
-  /*************************************************************************/
+  /** **********************************************************************
+    */
   /** Apply methods to treat a [[PPrism]] as smart constructors for type T */
-  /*************************************************************************/
-
-  def apply()(implicit ev: B === Unit): T =
-    ev.subst[PPrism[S, T, A, ?]](self).reverseGet(())
+  /** **********************************************************************
+    */
+  def apply()(implicit ev: Is[B, Unit]): T =
+    ev.substitute[PPrism[S, T, A, *]](self).reverseGet(())
 
   def apply(b: B): T = reverseGet(b)
 
@@ -249,9 +282,9 @@ object PPrism extends PrismInstances {
     PIso.id[S, T].asPrism
 
   /** create a [[PPrism]] using the canonical functions: getOrModify and reverseGet */
-  def apply[S, T, A, B](_getOrModify: S => T \/ A)(_reverseGet: B => T): PPrism[S, T, A, B] =
-    new PPrism[S, T, A, B]{
-      def getOrModify(s: S): T \/ A =
+  def apply[S, T, A, B](_getOrModify: S => Either[T, A])(_reverseGet: B => T): PPrism[S, T, A, B] =
+    new PPrism[S, T, A, B] {
+      def getOrModify(s: S): Either[T, A] =
         _getOrModify(s)
 
       def reverseGet(b: B): T =
@@ -271,9 +304,9 @@ object Prism {
 
   /** alias for [[PPrism]] apply restricted to monomorphic update */
   def apply[S, A](_getOption: S => Option[A])(_reverseGet: A => S): Prism[S, A] =
-    new Prism[S, A]{
-      def getOrModify(s: S): S \/ A =
-        _getOption(s).fold[S \/ A](\/.left(s))(\/.right)
+    new Prism[S, A] {
+      def getOrModify(s: S): Either[S, A] =
+        _getOption(s).fold[Either[S, A]](Either.left(s))(Either.right)
 
       def reverseGet(b: A): S =
         _reverseGet(b)
@@ -287,8 +320,8 @@ object Prism {
     Prism[S, A](get.lift)(reverseGet)
 
   /** a [[Prism]] that checks for equality with a given value */
-  def only[A](a: A)(implicit A: Equal[A]): Prism[A, Unit] =
-    Prism[A, Unit](a2 => if(A.equal(a, a2)) Some(()) else None)(_ => a)
+  def only[A](a: A)(implicit A: Eq[A]): Prism[A, Unit] =
+    Prism[A, Unit](a2 => if (A.eqv(a, a2)) Some(()) else None)(_ => a)
 }
 
 sealed abstract class PrismInstances {
@@ -301,7 +334,7 @@ sealed abstract class PrismInstances {
   }
 }
 
-final case class PrismSyntax[S, A](self: Prism[S, A]) extends AnyVal {
+final case class PrismSyntax[S, A](private val self: Prism[S, A]) extends AnyVal {
 
   /** lift a [[Prism]] such as it only matches if all elements of `F[S]` are getOrModify */
   def below[F[_]](implicit F: Traverse[F]): Prism[F[S], F[A]] =
